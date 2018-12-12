@@ -7,14 +7,17 @@
 #include <mutex>
 
 #include <glog/logging.h>
-#include <tf/transform_listener.h>
 #include <ros/ros.h>
-#include <sensor_msgs/LaserScan.h>
+#include <tf/transform_broadcaster.h>
+
+#include <nav_msgs/OccupancyGrid.h>
 
 #include "map_matcher/SetReferenceMap.h"
 #include "map_matcher/MatchToReference.h"
 
 namespace map_matcher {
+
+typedef std::vector<int> Array2D;
 
 class Node {
   public:
@@ -33,28 +36,64 @@ class Node {
     int score;
 };
 
+class BranchAndBoundProblemDef {
+  public:
+    BranchAndBoundProblemDef() {}
+    ~BranchAndBoundProblemDef() {}
+}; // BranchAndBoundProblemDef
+
 class BranchAndBoundMatcher {
+  public:
+    BranchAndBoundMatcher() {}
+    BranchAndBoundMatcher(const float& acceptance_ratio,
+                          const int& rotation_downsampling) :
+        kAcceptanceRatio(acceptance_ratio),
+        kRotationDownsampling(rotation_downsampling) {}
+    ~BranchAndBoundMatcher() {}
+
+    void setReferenceMap(const nav_msgs::OccupancyGrid& refmap) {
+      refmap_ = refmap;
+      // Recompute max fields
+    }
+    void match(const nav_msgs::OccupancyGrid& map) {
+      // Initialize problem
+    }
+
+    const nav_msgs::OccupancyGrid& refmap() const { return refmap_; }
+
+  private:
+    float kAcceptanceRatio;
+    int kRotationDownsampling;
+    nav_msgs::OccupancyGrid refmap_;
+    std::vector<Array2D> precomputed_max_fields_;
+
+}; // class BranchAndBoundMatcher
+
+class MapMatcherNode {
 
   public:
-    explicit BranchAndBoundMatcher(ros::NodeHandle& n) : nh_(n) {
-
+    MapMatcherNode(ros::NodeHandle& n) : nh_(n) {
       // Services
       // TODO
-      nh_.advertiseService("set_reference_map", &BranchAndBoundMatcher::set_reference_map_service, this);
-      nh_.advertiseService("match_to_reference", &BranchAndBoundMatcher::match_to_reference_service, this);
+      nh_.advertiseService("set_reference_map", &MapMatcherNode::set_reference_map_service, this);
+      nh_.advertiseService("match_to_reference", &MapMatcherNode::match_to_reference_service, this);
 
-      // TF_publisher
-      // TODO
+      // Params
+      float acceptance_ratio;
+      int rotation_downsampling;
+      nh_.param<float>("acceptance_ratio", acceptance_ratio, 0.5);
+      nh_.param("rotation_downsampling", rotation_downsampling, 1);
 
-      nh_.param("acceptance_ratio", kAcceptanceRatio, 0.5);
-      nh_.param("rotation_downsampling", kRotationDownsampling, 1);
+      // BranchAndBoundMatcher
+      bnb_ = BranchAndBoundMatcher(acceptance_ratio, rotation_downsampling);
     }
-    ~BranchAndBoundMatcher() {}
+    ~MapMatcherNode() {}
 
   protected:
     bool set_reference_map_service(map_matcher::SetReferenceMap::Request& req,
                                    map_matcher::SetReferenceMap::Response& res) {
       VLOG(3) << "";
+      bnb_.setReferenceMap(req.reference_map);
 
 
       VLOG(3) << "";
@@ -63,24 +102,32 @@ class BranchAndBoundMatcher {
     bool match_to_reference_service(map_matcher::MatchToReference::Request& req,
                                     map_matcher::MatchToReference::Response& res) {
       VLOG(3) << "scancallback";
+      bnb_.match(req.source_map);
 
 
       VLOG(3) << "";
       // publish result.
-//       match_debug_pub_.publish(TODO);
+      tf::Transform transform; // TODO
+      tf_br_.sendTransform(tf::StampedTransform(
+        transform,
+        ros::Time::now(),
+        req.source_map.header.frame_id,
+        bnb_.refmap().header.frame_id));
      }
 
 
   private:
     // ROS
     ros::NodeHandle& nh_;
-    ros::Subscriber scan_sub_;
+    tf::TransformBroadcaster tf_br_;
     ros::Publisher match_debug_pub_;
-    // Params
-    double kAcceptanceRatio;
-    int kRotationDownsampling;
+    ros::Subscriber scan_sub_;
 
-}; // class BranchAndBoundMatcher
+    // State
+    BranchAndBoundMatcher bnb_;
+
+}; // class MapMatcherNode
+
 
 } // namespace map_matcher
 
@@ -90,7 +137,7 @@ int main(int argc, char **argv) {
 
   ros::init(argc, argv, "map_matcher");
   ros::NodeHandle n("~"); // private node handle (~ gets replaced with node name)
-  BranchAndBoundMatcher bnb_matcher(n);
+  MapMatcherNode map_matcher(n);
 
   try {
     ros::spin();
