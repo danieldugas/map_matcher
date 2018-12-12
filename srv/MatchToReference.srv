@@ -1,0 +1,9 @@
+nav_msgs/OccupancyGrid source_map
+float32 theta_prior # optional, default 0
+---
+bool found_valid_match
+int32 i_source_origin_in_reference
+int32 j_source_origin_in_reference
+float32 theta
+float32 score
+

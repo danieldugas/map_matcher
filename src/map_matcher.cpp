@@ -11,37 +11,63 @@
 #include <ros/ros.h>
 #include <sensor_msgs/LaserScan.h>
 
+#include "map_matcher/SetReferenceMap.h"
+#include "map_matcher/MatchToReference.h"
+
 namespace map_matcher {
 
+class Node {
+  public:
+    Node(int height, int angle_index, int pos_i, int pos_j) :
+        h(height),
+        a(angle_index),
+        i(pos_i),
+        j(pos_j) {
+      score = -1;
+    }
+    ~Node() {}
+    int h;
+    int a;
+    int i;
+    int j;
+    int score;
+};
 
 class BranchAndBoundMatcher {
 
   public:
     explicit BranchAndBoundMatcher(ros::NodeHandle& n) : nh_(n) {
-      // Topic names.
-      const std::string kScanTopic = "scan";
-      const std::string kCroppedScanTopic = "cropped_scan";
 
       // Services
       // TODO
+      nh_.advertiseService("set_reference_map", &BranchAndBoundMatcher::set_reference_map_service, this);
+      nh_.advertiseService("match_to_reference", &BranchAndBoundMatcher::match_to_reference_service, this);
 
       // TF_publisher
       // TODO
 
-      nh_.getParam("acceptance_ratio", kAcceptanceRatio, 0.5);
-      nh_.getParam("rotation_downsampling", kRotationDownsampling, 1);
+      nh_.param("acceptance_ratio", kAcceptanceRatio, 0.5);
+      nh_.param("rotation_downsampling", kRotationDownsampling, 1);
     }
     ~BranchAndBoundMatcher() {}
 
   protected:
-    /// \brief receives scan 1 messages
-    void matchCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) {
+    bool set_reference_map_service(map_matcher::SetReferenceMap::Request& req,
+                                   map_matcher::SetReferenceMap::Response& res) {
+      VLOG(3) << "";
+
+
+      VLOG(3) << "";
+     }
+
+    bool match_to_reference_service(map_matcher::MatchToReference::Request& req,
+                                    map_matcher::MatchToReference::Response& res) {
       VLOG(3) << "scancallback";
 
 
       VLOG(3) << "";
       // publish result.
-      match_debug_pub_.publish(TODO);
+//       match_debug_pub_.publish(TODO);
      }
 
 
