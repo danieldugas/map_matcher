@@ -41,17 +41,31 @@ class Array2D {
     }
     Array2D(const size_t& size_i, const size_t& size_j) :
       shape_i(size_i), shape_j(size_j) {
-        CHECK_NOTNULL(data);
-        CHECK_GT(shape_i, 0u);
-        CHECK_GT(shape_j, 0u);
       data = new ArrayType*[shape_i];
       for ( size_t i = 0; i < shape_i; i++ ) {
         data[i] = new ArrayType[shape_j];
-        VLOG(5) << data[i];
-        CHECK_NOTNULL(data[i]);
         // fill with zeros
         for ( size_t j = 0; j < shape_j; j++ ) {
           data[i][j] = 0;
+        }
+      }
+    }
+    // Copy constructor
+    Array2D(const Array2D& orig) : Array2D(orig.shape_i, orig.shape_j) {
+      VLOG(3) << "COPY";
+      for ( size_t i = 0; i < shape_i; i++ ) {
+        for ( size_t j = 0; j < shape_j; j++ ) {
+          data[i][j] = orig.data[i][j];
+        }
+      }
+    }
+    const Array2D& operator=(const Array2D& orig) {
+      VLOG(3) << "ASSIGN";
+      CHECK(orig.shape_i == shape_i);
+      CHECK(orig.shape_j == shape_j);
+      for ( size_t i = 0; i < shape_i; i++ ) {
+        for ( size_t j = 0; j < shape_j; j++ ) {
+          data[i][j] = orig.data[i][j];
         }
       }
     }
@@ -66,18 +80,10 @@ class Array2D {
     size_t shape_j;
     T& at(const int& i, const int& j) {
       // chosen to get numpy indexing where also i -> x , j -> y from OccupancyGrid messages
-          VLOG(5) << i << " " << j << " " << shape_i << " " << shape_j;
-          VLOG(5) << data;
-          VLOG(5) << data[i];
-        CHECK_NOTNULL(data[i]);
       return data[i][j];
     }
     const T& at_c(const int& i, const int& j) const {
       // chosen to get numpy indexing where also i -> x , j -> y from OccupancyGrid messages
-          VLOG(5) << i << " " << j << " " << shape_i << " " << shape_j;
-          VLOG(5) << data;
-          VLOG(5) << data[i];
-        CHECK_NOTNULL(data[i]);
       return data[i][j];
     }
     Hits as_occupied_points_ij() const {
@@ -85,11 +91,9 @@ class Array2D {
       Hits result;
       for (size_t i = 0; i < shape_i; i++) {
         for (size_t j = 0; j < shape_j; j++) {
-          VLOG(5) << "";
           if ( at_c(i, j) >= kThreshOccupied ) {
             result.push_back({i, j});
           }
-          VLOG(5) << "";
         }
       }
       return result;
@@ -103,7 +107,7 @@ inline const size_t shape_j(const nav_msgs::MapMetaData& info) { return info.hei
 Hits as_occupied_points_ij(const nav_msgs::OccupancyGrid& map) {
   return Array2D<ArrayType>(map.data, map.info).as_occupied_points_ij();
 }
-Hits rotate_hits_around_map_center(const Hits& hits, const float& theta, 
+Hits rotate_hits_around_map_center(const Hits& hits, const float& theta,
     const nav_msgs::MapMetaData& info) {
   const float a = cos(theta);
   const float b = -sin(theta);
@@ -248,7 +252,7 @@ class BranchAndBoundMatcher {
       }
       toc = ros::Time::now();
       ROS_INFO_STREAM("Expanding rotation nodes: " << toc - tic << " s");
-      
+
       // Depth-First Search Greedy
       tic = ros::Time::now();
       while ( !node_list.empty() ) {
@@ -280,7 +284,7 @@ class BranchAndBoundMatcher {
       return result;
     }
 
-    void expand_node(const Node& node, const BranchAndBoundProblemDef& problem_def, 
+    void expand_node(const Node& node, const BranchAndBoundProblemDef& problem_def,
         std::vector<Node>& node_list) const {
       // Split the node window into 4, of size 2^(node_height - 1)
       // if the window size is not a nice power of 2,
@@ -334,9 +338,7 @@ class BranchAndBoundMatcher {
         if ( i_f < 0 || j_f < 0 || i_f >= fs_i || j_f >= fs_j ){
           continue;
         }
-          VLOG(5) << "";
         score += field.at_c(i_f, j_f);
-          VLOG(5) << "";
       }
       node.score = score / 100;
     }
@@ -349,9 +351,9 @@ class BranchAndBoundMatcher {
           continue;
         }
         // Compute field for height h
-        Array2D<ArrayType> prev_field = precomputed_max_fields_.at(h-1);
-        Array2D<ArrayType> new_field = Array2D<ArrayType>(shape_i(refmap_.info) + pow(2,h) - 1,
-                                                          shape_j(refmap_.info) + pow(2,h) - 1);
+        const Array2D<ArrayType>& prev_field = precomputed_max_fields_.at(h-1);
+        Array2D<ArrayType> new_field(shape_i(refmap_.info) + pow(2,h) - 1,
+                                     shape_j(refmap_.info) + pow(2,h) - 1);
         int o_prev = pow(2, h-1);
         for (int i = 0; i < new_field.shape_i; i++) {
           for (int j = 0; j < new_field.shape_j; j++) {
@@ -373,20 +375,16 @@ class BranchAndBoundMatcher {
                      j_p_ >= prev_field.shape_j ) {
                     continue;
                 }
-          VLOG(5) << "";
-                ArrayType val = prev_field.at(i_p_, j_p_);
-          VLOG(5) << "";
+                const ArrayType val = prev_field.at_c(i_p_, j_p_);
                 if ( val > max_val ) {
                   max_val = val;
                 }
             }
-          VLOG(5) << "";
             new_field.at(i,j) = max_val;
-          VLOG(5) << "";
           }
         }
         // Push back
-        precomputed_max_fields_.push_back(new_field);
+        precomputed_max_fields_.emplace_back(new_field);
 
       }
     }
@@ -482,4 +480,3 @@ int main(int argc, char **argv) {
 
   return 0;
 }
-
