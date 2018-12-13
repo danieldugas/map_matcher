@@ -41,9 +41,14 @@ class Array2D {
     }
     Array2D(const size_t& size_i, const size_t& size_j) :
       shape_i(size_i), shape_j(size_j) {
+        CHECK_NOTNULL(data);
+        CHECK_GT(shape_i, 0u);
+        CHECK_GT(shape_j, 0u);
       data = new ArrayType*[shape_i];
       for ( size_t i = 0; i < shape_i; i++ ) {
         data[i] = new ArrayType[shape_j];
+        VLOG(5) << data[i];
+        CHECK_NOTNULL(data[i]);
         // fill with zeros
         for ( size_t j = 0; j < shape_j; j++ ) {
           data[i][j] = 0;
@@ -62,11 +67,17 @@ class Array2D {
     T& at(const int& i, const int& j) {
       // chosen to get numpy indexing where also i -> x , j -> y from OccupancyGrid messages
           VLOG(5) << i << " " << j << " " << shape_i << " " << shape_j;
+          VLOG(5) << data;
+          VLOG(5) << data[i];
+        CHECK_NOTNULL(data[i]);
       return data[i][j];
     }
     const T& at_c(const int& i, const int& j) const {
       // chosen to get numpy indexing where also i -> x , j -> y from OccupancyGrid messages
           VLOG(5) << i << " " << j << " " << shape_i << " " << shape_j;
+          VLOG(5) << data;
+          VLOG(5) << data[i];
+        CHECK_NOTNULL(data[i]);
       return data[i][j];
     }
     Hits as_occupied_points_ij() const {
