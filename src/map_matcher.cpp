@@ -30,29 +30,55 @@ template <class T>
 class Array2D {
   public:
     Array2D(const ArrayData& msg_data, const nav_msgs::MapMetaData& info) :
-      data(msg_data), shape_i(info.width), shape_j(info.height) {}
+      Array2D(info.width, info.height)
+    {
+      // fill with msg_data
+      for ( size_t i = 0; i < shape_i; i++ ) {
+        for ( size_t j = 0; j < shape_j; j++ ) {
+          data[i][j] = msg_data[i + j * shape_i];
+        }
+      }
+    }
     Array2D(const size_t& size_i, const size_t& size_j) :
-      data(size_i * size_j, 0), shape_i(size_i), shape_j(size_j) {}
-    ~Array2D() {}
-    ArrayData data;
+      shape_i(size_i), shape_j(size_j) {
+      data = new ArrayType*[shape_i];
+      for ( size_t i = 0; i < shape_i; i++ ) {
+        data[i] = new ArrayType[shape_j];
+        // fill with zeros
+        for ( size_t j = 0; j < shape_j; j++ ) {
+          data[i][j] = 0;
+        }
+      }
+    }
+    ~Array2D() {
+      for ( size_t i = 0; i < shape_i; i++ ) {
+        delete[] data[i];
+      }
+      delete[] data;
+    }
+    ArrayType** data;
     size_t shape_i;
     size_t shape_j;
     T& at(const int& i, const int& j) {
       // chosen to get numpy indexing where also i -> x , j -> y from OccupancyGrid messages
-      return data[i + j * shape_i];
+          VLOG(5) << i << " " << j << " " << shape_i << " " << shape_j;
+      return data[i][j];
     }
     const T& at_c(const int& i, const int& j) const {
       // chosen to get numpy indexing where also i -> x , j -> y from OccupancyGrid messages
-      return data[i + j * shape_i];
+          VLOG(5) << i << " " << j << " " << shape_i << " " << shape_j;
+      return data[i][j];
     }
     Hits as_occupied_points_ij() const {
       constexpr T kThreshOccupied = 90;
       Hits result;
       for (size_t i = 0; i < shape_i; i++) {
         for (size_t j = 0; j < shape_j; j++) {
+          VLOG(5) << "";
           if ( at_c(i, j) >= kThreshOccupied ) {
             result.push_back({i, j});
           }
+          VLOG(5) << "";
         }
       }
       return result;
@@ -297,7 +323,9 @@ class BranchAndBoundMatcher {
         if ( i_f < 0 || j_f < 0 || i_f >= fs_i || j_f >= fs_j ){
           continue;
         }
+          VLOG(5) << "";
         score += field.at_c(i_f, j_f);
+          VLOG(5) << "";
       }
       node.score = score / 100;
     }
@@ -334,12 +362,16 @@ class BranchAndBoundMatcher {
                      j_p_ >= prev_field.shape_j ) {
                     continue;
                 }
+          VLOG(5) << "";
                 ArrayType val = prev_field.at(i_p_, j_p_);
+          VLOG(5) << "";
                 if ( val > max_val ) {
                   max_val = val;
                 }
             }
+          VLOG(5) << "";
             new_field.at(i,j) = max_val;
+          VLOG(5) << "";
           }
         }
         // Push back
