@@ -20,32 +20,36 @@ namespace map_matcher {
 
 typedef int8_t ArrayType;
 typedef std::vector<ArrayType> ArrayData;
-typedef std::array<int, 2> Hit;
+typedef struct Hit{
+  int i;
+  int j;
+} Hit;
 typedef std::vector<Hit> Hits;
 
 template <class T>
 class Array2D {
   public:
     Array2D(const ArrayData& msg_data, const nav_msgs::MapMetaData& info) :
-      data(msg_data), shape({info.width, info.height}) {}
+      data(msg_data), shape_i(info.width), shape_j(info.height) {}
     Array2D(const size_t& size_i, const size_t& size_j) :
-      data(size_i * size_j, 0), shape({size_i, size_j}) {}
+      data(size_i * size_j, 0), shape_i(size_i), shape_j(size_j) {}
     ~Array2D() {}
     ArrayData data;
-    std::array<size_t, 2> shape;
+    size_t shape_i;
+    size_t shape_j;
     T& at(const int& i, const int& j) {
       // chosen to get numpy indexing where also i -> x , j -> y from OccupancyGrid messages
-      return data.at(i + j * shape[0]);
+      return data[i + j * shape_i];
     }
     const T& at_c(const int& i, const int& j) const {
       // chosen to get numpy indexing where also i -> x , j -> y from OccupancyGrid messages
-      return data.at(i + j * shape[0]);
+      return data[i + j * shape_i];
     }
     Hits as_occupied_points_ij() const {
       constexpr T kThreshOccupied = 90;
       Hits result;
-      for (size_t i = 0; i < shape[0]; i++) {
-        for (size_t j = 0; j < shape[1]; j++) {
+      for (size_t i = 0; i < shape_i; i++) {
+        for (size_t j = 0; j < shape_j; j++) {
           if ( at_c(i, j) >= kThreshOccupied ) {
             result.push_back({i, j});
           }
@@ -55,10 +59,8 @@ class Array2D {
     }
 }; // class Array2D
 
-const std::array<size_t, 2> shape(const nav_msgs::MapMetaData& info) {
-  return {info.width, info.height};
-}
-
+inline const size_t shape_i(const nav_msgs::MapMetaData& info) { return info.width; };
+inline const size_t shape_j(const nav_msgs::MapMetaData& info) { return info.height; };
 // The BNB code should not use width and height, only i j and shapes.
 
 Hits as_occupied_points_ij(const nav_msgs::OccupancyGrid& map) {
@@ -74,14 +76,14 @@ Hits rotate_hits_around_map_center(const Hits& hits, const float& theta,
   for (size_t n = 0; n < hits.size(); n++ ) {
     Hit ij = hits[n];
     // translate
-    float i_t = ( ij[0] - shape(info)[0] * 0.5 );
-    float j_t = ( ij[1] - shape(info)[1] * 0.5 );
+    float i_t = ( ij.i - shape_i(info) * 0.5 );
+    float j_t = ( ij.j - shape_j(info) * 0.5 );
     // rotate
     float i_tr = i_t * a + j_t * b;
     float j_tr = i_t * c + j_t * d;
     // translate
-    int i_trt = ( i_tr + shape(info)[0] * 0.5 );
-    int j_trt = ( j_tr + shape(info)[1] * 0.5 );
+    int i_trt = ( i_tr + shape_i(info) * 0.5 );
+    int j_trt = ( j_tr + shape_j(info) * 0.5 );
     rotated.push_back({i_trt, j_trt});
   }
   return rotated;
@@ -157,11 +159,10 @@ class BranchAndBoundMatcher {
       ros::Time tic = ros::Time::now();
       BranchAndBoundProblemDef problem_def;
       // Window characteristics
-      shape(map.info);
-      int half_length = std::max(shape(map.info)[0], shape(map.info)[1]) / 2;
+      int half_length = std::max(shape_i(map.info), shape_j(map.info)) / 2;
       problem_def.window_offset = half_length;
-      problem_def.window_size_i = shape(refmap_.info)[0] + 2 * half_length;
-      problem_def.window_size_j = shape(refmap_.info)[1] + 2 * half_length;
+      problem_def.window_size_i = shape_i(refmap_.info) + 2 * half_length;
+      problem_def.window_size_j = shape_j(refmap_.info) + 2 * half_length;
       // Height of the first children nodes
       problem_def.init_height = std::ceil(std::log2(std::max(problem_def.window_size_i,
                                                              problem_def.window_size_j))) - 1;
@@ -169,8 +170,8 @@ class BranchAndBoundMatcher {
       precompute_max_fields(problem_def.init_height);
       // Rotational resolution
       problem_def.dr = kRotationDownsampling * 1. / sqrt(
-          shape(map.info)[0] * shape(map.info)[0] +
-          shape(map.info)[1] * shape(map.info)[1] );
+          shape_i(map.info) * shape_i(map.info) +
+          shape_j(map.info) * shape_j(map.info) );
       problem_def.n_rotations = 2. * M_PI / problem_def.dr - 1;
       // Rotate map accordingly
       Hits occupied_points = as_occupied_points_ij(map);
@@ -249,8 +250,8 @@ class BranchAndBoundMatcher {
       // some children end up covering more of the window
       std::vector<Node> child_nodes;
       constexpr size_t N = 4;
-      std::array<int, N> i_offsets = {0, 0, 1, 1};
-      std::array<int, N> j_offsets = {0, 1, 0, 1};
+      constexpr int i_offsets[N] = {0, 0, 1, 1};
+      constexpr int j_offsets[N] = {0, 1, 0, 1};
       const int child_h = node.h - 1;
       const int w = pow(2, child_h);
       for (size_t n = 0; n < N; n++) {
@@ -283,21 +284,17 @@ class BranchAndBoundMatcher {
       // move hits to node_pos in window frame,
       // then coordinates from window frame to field frame
       int o = - o_w + o_f;
-      int fs_i = field.shape[0];
-      int fs_j = field.shape[1];
+      int fs_i = field.shape_i;
+      int fs_j = field.shape_j;
       for (size_t n = 0; n < hits.size(); n++) {
         const auto& ij = hits[n];
         // in occupancy frame
-        int i = ij[0];
-        int j = ij[1];
+        int i = ij.i;
+        int j = ij.j;
         // in field frame
         int i_f = (i + node.i + o);
         int j_f = (j + node.j + o);
         if ( i_f < 0 || j_f < 0 || i_f >= fs_i || j_f >= fs_j ){
-          continue;
-        }
-        const int& val =  field.at_c(i_f, j_f);
-        if ( val <= 0 ) {
           continue;
         }
         score += field.at_c(i_f, j_f);
@@ -314,11 +311,11 @@ class BranchAndBoundMatcher {
         }
         // Compute field for height h
         Array2D<ArrayType> prev_field = precomputed_max_fields_.at(h-1);
-        Array2D<ArrayType> new_field = Array2D<ArrayType>(shape(refmap_.info)[0] + pow(2,h) - 1,
-                                                          shape(refmap_.info)[1] + pow(2,h) - 1);
+        Array2D<ArrayType> new_field = Array2D<ArrayType>(shape_i(refmap_.info) + pow(2,h) - 1,
+                                                          shape_j(refmap_.info) + pow(2,h) - 1);
         int o_prev = pow(2, h-1);
-        for (int i = 0; i < new_field.shape[0]; i++) {
-          for (int j = 0; j < new_field.shape[1]; j++) {
+        for (int i = 0; i < new_field.shape_i; i++) {
+          for (int j = 0; j < new_field.shape_j; j++) {
             ArrayType max_val = 0;
             // equivalent i j coordinates in the previous map to correct for padding
             // i_previous = i - o_prev
@@ -326,15 +323,15 @@ class BranchAndBoundMatcher {
             int j_p = j - o_prev;
             // coordinates for 4 samples in the prev_field
             constexpr size_t N = 4;
-            std::array<int, N> i_p_samples = {i_p, i_p + o_prev, i_p         , i_p + o_prev};
-            std::array<int, N> j_p_samples = {j_p, j_p         , j_p + o_prev, j_p + o_prev};
+            int i_p_samples[N] = {i_p, i_p + o_prev, i_p         , i_p + o_prev};
+            int j_p_samples[N] = {j_p, j_p         , j_p + o_prev, j_p + o_prev};
             for (size_t n = 0; n < N; n++) {
                 int i_p_ = i_p_samples[n];
                 int j_p_ = j_p_samples[n];
                 if ( i_p_ < 0 ||
                      j_p_ < 0 ||
-                     i_p_ >= prev_field.shape[0] ||
-                     j_p_ >= prev_field.shape[1] ) {
+                     i_p_ >= prev_field.shape_i ||
+                     j_p_ >= prev_field.shape_j ) {
                     continue;
                 }
                 ArrayType val = prev_field.at(i_p_, j_p_);
