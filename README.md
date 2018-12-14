@@ -3,7 +3,7 @@ map_matcher is a ros node which matches a source map to a reference map.
 
 ## Example Usage
 - Create a map with gmapping. When done, save ```map.yaml``` and ```map.pgm``` to ```~/maps/``` .
-- run gmapping again. It should be publishing a map to the topic ```/map```
+- run gmapping again. It should be publishing a map to the topic ```/map``` (```nav_msgs/OccupancyGrid```)
 - While gmapping is running, launch the localizer_example:  
 ```$roslaunch map_matcher localizer_example.launch```
 
