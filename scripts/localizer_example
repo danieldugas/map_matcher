@@ -1,0 +1,301 @@
+#!/usr/bin/env python
+from functools import partial
+from math import log
+import numpy as np
+import os
+import rospy
+import tf
+from tf2_ros import TransformException
+import threading
+from timeit import default_timer as timer
+from yaml import load
+from matplotlib.pyplot import imread
+
+from nav_msgs.msg import OccupancyGrid
+from visualization_msgs.msg import Marker
+
+from map_matcher.srv import *
+
+
+def filter_if_out_of_bounds(indices_list, a):
+    valid_mask = np.all(
+            np.logical_and(indices_list >= 0, indices_list < a.shape),
+            axis=-1,
+            )
+    return indices_list[valid_mask]
+
+class MotionPlanner(object):
+    def __init__(self, map2d, aggressive_locomotion=True, debug=False):
+        # Initialize variables
+        # x axis points "forward" from the robot, y points "left"
+        self.lock = threading.Lock() # for avoiding race conditions
+        self.global_map = map2d # occupancy grid
+        self.kSlamMapTopic = "/slam_map"
+        self.kGlobalMatchTopic = "debug/GlobalMatch"
+        self.kGlobalMapFrame = "bnb_map"
+        self.kPublishLocalizationPeriod = rospy.Duration(1.) # [s]
+
+        self.global_map_8ds = self.global_map.as_coarse_map2d().as_coarse_map2d().as_coarse_map2d()
+        self.bnb_theta_prior = 0
+        self.bnb_last_tf = None
+
+    def run(self):
+        # Initialize ros
+        self.tf_broadcaster = tf.TransformBroadcaster()
+        # Publishers
+        self.global_match_pub = rospy.Publisher(self.kGlobalMatchTopic, OccupancyGrid, queue_size=1)
+        # Services
+        rospy.Subscriber(self.kSlamMapTopic, OccupancyGrid, self.map_match_localization_callback, queue_size=1)
+        rospy.Timer(self.kPublishLocalizationPeriod, self.publish_localization_callback)
+        try:
+            rospy.spin()
+        except KeyboardInterrupt:
+            print("Keyboard interrupt - Shutting down")
+        rospy.signal_shutdown("Keyboard Interrupt")
+
+    # helpers
+    def numpy_to_occupancy_grid_msg(self, arr, ref_map2d, frame_id, time=None):
+        if not len(arr.shape) == 2:
+                raise TypeError('Array must be 2D')
+        arr = arr.T * 100.
+        if not arr.dtype == np.int8:
+            arr = arr.astype(np.int8)
+        if time is None:
+            time = rospy.Time.now()
+        grid = OccupancyGrid()
+        grid.header.frame_id = frame_id
+        grid.header.stamp.secs = time.secs
+        grid.header.stamp.nsecs = time.nsecs
+        grid.data = arr.ravel()
+        grid.info.resolution = ref_map2d.resolution
+        grid.info.height = arr.shape[0]
+        grid.info.width = arr.shape[1]
+        grid.info.origin.position.x = ref_map2d.origin[0]
+        grid.info.origin.position.y = ref_map2d.origin[1]
+        return grid 
+
+    def tf_to_pose2d(self, tf_):
+        return np.array([
+            tf_[0][0], # x
+            tf_[0][1], # y
+            tf.transformations.euler_from_quaternion(tf_[1])[2], # theta 
+            ])
+
+    def apply_tf(self, x, pose2d):
+        # x is in frame B
+        # pose2d is AT_B
+        # result is x in frame A
+        return self.rotate(x, pose2d[2]) + np.array(pose2d[:2])
+
+    def rotate(self, x, th):
+        rotmat = np.array([
+            [np.cos(th), -np.sin(th)],
+            [np.sin(th), np.cos(th)],
+            ])
+        return np.matmul(rotmat, x.T).T
+
+    def inverse_pose2d(self, pose2d):
+        inv_th = -pose2d[2] # theta
+        inv_xy = self.rotate(np.array([-pose2d[:2]]), inv_th)[0]
+        return np.array([inv_xy[0], inv_xy[1], inv_th])
+
+    def rotate_points_around_map_center(self, points, th, map_):
+        rot_mat = np.array([
+            [np.cos(th), -np.sin(th)],
+            [np.sin(th),  np.cos(th)],])
+        # rotation around center
+        return (np.matmul(
+                rot_mat, 
+                (points - (np.array(map_.occupancy.shape) * 0.5)).T
+                ).T + (np.array(map_.occupancy.shape) * 0.5)).astype(int)
+
+
+    # callbacks
+    def map_match_localization_callback(self, msg):
+        # slam map as list of hits
+        # create graph
+        slam_map = Map2D()
+        slam_map.from_msg(msg)
+        # Match map resolutions
+        res_ratio = int(np.log2(self.global_map_8ds.resolution / slam_map.resolution))
+        for n in range(res_ratio):
+            slam_map = slam_map.as_coarse_map2d()
+        if abs(slam_map.resolution - self.global_map_8ds.resolution) > (slam_map.resolution * 0.01):
+            raise ValueError(
+                "Failed to match map resolution ({}) with reference map resolution ({})".format(
+                    slam_map.resolution, self.global_map_8ds.resolution))
+        # MapMatcher
+        try:
+            setref_srv = rospy.ServiceProxy('/map_matcher/set_reference_map', SetReferenceMap)
+            setref_srv(self.numpy_to_occupancy_grid_msg(self.global_map_8ds.occupancy,
+                self.global_map_8ds, self.kGlobalMapFrame))
+            match_srv = rospy.ServiceProxy('/map_matcher/match_to_reference', MatchToReference)
+            resp = match_srv(
+                    self.numpy_to_occupancy_grid_msg(slam_map.occupancy, slam_map, msg.header.frame_id),
+                    self.bnb_theta_prior)
+        except rospy.ServiceException as e:
+            print(e)
+            return
+        if resp.found_valid_match:
+            theta = resp.theta
+            score = resp.score
+            pose = np.array([resp.i_source_origin_in_reference, resp.j_source_origin_in_reference])
+        else:
+            theta = None
+        if theta is None:
+            print("No solution found.")
+            return
+        # Result
+        self.bnb_theta_prior = theta
+        print("Branch and bound solution found. score: {}, pose: {}, theta: {}".format(score,pose,theta))
+        hits = slam_map.as_occupied_points_ij()
+        hits = self.rotate_points_around_map_center(hits, theta, slam_map)
+        hits += pose
+        debug_match = self.global_map_8ds.occupancy * 1.
+        valid_hits = filter_if_out_of_bounds(hits, debug_match)
+        debug_match[tuple(valid_hits.T)] -= 2
+        # find Tf between slam and global map
+        q = msg.info.origin.orientation
+        slam_th = tf.transformations.euler_from_quaternion(np.array([q.x, q.y, q.z, q.w]))[2]
+        assert slam_th == 0
+        # origin of the slam map in bnb map frame
+        o_ij = self.rotate_points_around_map_center(
+                slam_map.xy_to_ij(np.array([[0.,0.]]), clip_if_outside=False), theta, slam_map)
+        o_ij += np.array(pose)
+        o_th = slam_th + theta
+        o_xy = self.global_map_8ds.ij_to_xy(o_ij)[0]
+        # inverse of transform
+        o_xy_inv = self.inverse_pose2d(np.array([o_xy[0], o_xy[1], o_th]))
+        stamp = rospy.Time.now()
+        self.bnb_last_tf = [
+                (o_xy_inv[0], o_xy_inv[1], 0),
+                tf.transformations.quaternion_from_euler(0,0,o_xy_inv[2]),
+                stamp,
+                self.kGlobalMapFrame,
+                msg.header.frame_id,
+                ]
+        self.tf_broadcaster.sendTransform(*self.bnb_last_tf)
+        self.global_match_pub.publish(self.numpy_to_occupancy_grid_msg(debug_match, self.global_map_8ds, self.kGlobalMapFrame))
+        print("Published map match.")
+        return
+
+    def publish_localization_callback(self, event=None):
+        if self.bnb_last_tf is not None:
+            tf = self.bnb_last_tf[:]
+            tf[2] = rospy.Time.now()
+            self.tf_broadcaster.sendTransform(*tf)
+
+
+
+class Map2D(object):
+    def __init__(self, folder=None, name=None):
+        self.occupancy = np.ones((100, 100)) * 0.5
+        self.resolution = 0.01
+        self.origin = np.array([0., 0.])
+        self.thresh_occupied = 0.9
+        self.thresh_free = 0.1
+        self.HUGE = 1e10 
+        if folder is None or name is None:
+            return
+        # Load map from file
+        folder = os.path.expanduser(folder)
+        yaml_file = os.path.join(folder, name + ".yaml")
+        print("Loading map definition from {}".format(yaml_file))
+        with open(yaml_file) as stream:
+            mapparams = load(stream)
+        map_file = os.path.join(folder, mapparams['image'])
+        print("Map definition found. Loading map from {}".format(map_file))
+        mapimage = imread(map_file)
+        self.occupancy = 1. - mapimage.T[:,::-1] / 254. # (0 to 1) 1 means 100% certain occupied
+        self.resolution = mapparams['resolution'] # [meters] side of 1 grid square
+        self.origin = mapparams['origin'][:2] # [meters] x y coordinates of point at i = j = 0
+        if mapparams['origin'][2] != 0:
+            raise ValueError("Map files with a rotated frame (origin.theta != 0) are not"
+            " supported. Setting the value to 0 in the MAP_NAME.yaml file is one way to"
+            " resolve this.")
+        self.thresh_occupied = mapparams['occupied_thresh']
+        self.thresh_free = mapparams['free_thresh']
+        self.HUGE = 100 * np.prod(self.occupancy.shape) # bigger than any possible distance in the map
+
+    def from_msg(self, msg):
+        self.origin = np.array([msg.info.origin.position.x, msg.info.origin.position.y])
+        self.resolution = msg.info.resolution
+        self.occupancy = np.array(msg.data).reshape((msg.info.height, msg.info.width)).T * 0.01
+        self.HUGE = 100 * np.prod(self.occupancy.shape) # bigger than any possible distance in the map
+
+    def from_scan(self, scan, resolution, limits):
+        """ Creating a map from a scan places the x y origin in the center of the grid,
+        and generates the occupancy field from the laser data.
+        """
+        self.origin = limits[:,0]
+        self.resolution = resolution
+        self.thresh_occupied = 0.9
+        self.thresh_free = 0.1
+        angles = np.arange(scan.angle_min, scan.angle_max, scan.angle_increment)
+        xy_hits = (np.array(scan.ranges) * np.array([np.cos(angles), np.sin(angles)])).T
+        ij_hits = self.xy_to_ij(xy_hits, clip_if_outside=False)
+        self.occupancy = 0.5 * np.ones(((limits[:,1] - limits[:,0]) / resolution).astype(int))
+        ij_laser_orig = ( -self.origin / self.resolution ).astype(int)
+        compiled_reverse_raytrace(ij_hits, ij_laser_orig, self.occupancy)
+
+    def xy_to_ij(self, x, y=None, clip_if_outside=True):
+        # if no y argument is given, assume x is a [...,2] array with xy in last dim
+        if y is None:
+            return np.concatenate(
+                    self.xy_to_ij(*np.split(x, 2, axis=-1), 
+                                  clip_if_outside=clip_if_outside),
+                    axis=-1)
+        """ for each x y coordinate, return an i j cell index """
+        i = (x - self.origin[0]) / self.resolution
+        j = (y - self.origin[1]) / self.resolution
+        i = i.astype(int)
+        j = j.astype(int)
+        if clip_if_outside:
+            i[i >= self.occupancy.shape[0]] = self.occupancy.shape[0]-1
+            i[i < 0] = 0
+            j[j >= self.occupancy.shape[1]] = self.occupancy.shape[1]-1
+            j[j < 0] = 0
+        return i, j
+
+    def ij_to_xy(self, i, j=None):
+        # if no j argument is given, assume i is a [...,2] array with ij in last dim
+        if j is None:
+            return np.concatenate(
+                    self.ij_to_xy(*np.split(i, 2, axis=-1)),
+                    axis=-1)
+        x = i * self.resolution + self.origin[0]
+        y = j * self.resolution + self.origin[1]
+        return x, y
+
+    def as_occupied_points_ij(self, numba=False):
+        if numba:
+            return compiled_occupied_points(self.occupancy, self.thresh_occupied)
+        return np.array(np.where(self.occupancy > self.thresh_occupied)).T
+
+    def as_coarse_map2d(self):
+        from copy import deepcopy
+        coarse = deepcopy(self)
+        coarse.occupancy = np.max(
+                np.stack((self.occupancy[::2,  ::2], self.occupancy[1::2,  ::2],
+                          self.occupancy[::2, 1::2], self.occupancy[1::2, 1::2]),
+                          axis=-1),
+                axis=-1)
+        coarse.resolution = self.resolution * 2
+        return coarse
+
+
+
+
+if __name__ == "__main__":
+    rospy.init_node("localizer_example")
+    print("Loading reference map.")
+    folder = rospy.get_param("~maps_folder", "~/maps/")
+    filename =  rospy.get_param("~reference_map_name", "map")
+    try:
+        map_ = Map2D(folder, filename)
+    except IOError as e:
+        print(e)
+        raise IOError("Failed to load reference map. Make sure {}.yaml and {}.pgm"
+               " are in the {} folder.".format(filename, filename, folder))
+    motion_planner = MotionPlanner(map_)
+    motion_planner.run()
