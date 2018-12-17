@@ -92,7 +92,8 @@ class Array2D {
       for (size_t i = 0; i < shape_i; i++) {
         for (size_t j = 0; j < shape_j; j++) {
           if ( at_c(i, j) >= kThreshOccupied ) {
-            result.push_back({i, j});
+            // size_t to int conversion would fail for HUGE index values.
+            result.push_back({static_cast<int>(i), static_cast<int>(j)});
           }
         }
       }
@@ -147,7 +148,7 @@ class Node {
     int score;
 }; // class Node
 bool gt(Node a, Node b) { return (a.score < b.score); }
-bool gt_angles(Node a, Node b, float th) { return (abs(a.a - th) > abs(b.a - th)); }
+bool gt_angles(Node a, Node b, float th) { return (std::abs(a.a - th) > std::abs(b.a - th)); }
 
 class BranchAndBoundSolution {
   public:
