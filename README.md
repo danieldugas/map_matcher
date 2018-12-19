@@ -25,3 +25,8 @@ Both maps should have similar resolutions for the matching algorithm to succeed.
 
 
 
+### Parameters
+
+rotation_downsampling (float, default 1) : multiplies the default angular resolution, increasing this value leads to less accurate results but faster execution. should be 1 or larger than 1.
+hits_sample_threshold (int, default 0) : if a value n other than 0, n occupied points in the source map will be sampled randomly to reduce computation. should be 0 or a positive integer.
+acceptance_ratio (float, default 0.5) : Proportion of occupied points in the source map that must have a match in the reference map in order for the match to be accepted. should be a value between 0 and 1.

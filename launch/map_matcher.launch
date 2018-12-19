@@ -2,5 +2,6 @@
 <launch>
   <node pkg="map_matcher" type="map_matcher" name="map_matcher" output="screen">
     <param name="rotation_downsampling" type="double" value="2.0"/>
+    <param name="hits_sample_threshold" type="double" value="300"/>
   </node>
 </launch>

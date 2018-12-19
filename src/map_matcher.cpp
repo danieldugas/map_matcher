@@ -180,9 +180,11 @@ class BranchAndBoundMatcher {
     BranchAndBoundMatcher() : ref_is_set_(false) {}
     BranchAndBoundMatcher(const float& acceptance_ratio,
                           const int& rotation_downsampling,
+                          const int& hits_sample_threshold,
                           const nav_msgs::OccupancyGrid& refmap) :
         kAcceptanceRatio(acceptance_ratio),
         kRotationDownsampling(rotation_downsampling),
+        kHitsSampleThreshold(hits_sample_threshold),
         refmap_(refmap),
         ref_is_set_(true) {
       precomputed_max_fields_.emplace_back(refmap.data, refmap.info);
@@ -217,6 +219,7 @@ class BranchAndBoundMatcher {
       problem_def.n_rotations = 2. * M_PI / problem_def.dr - 1;
       // Rotate map accordingly
       Hits occupied_points = as_occupied_points_ij(map);
+      occupied_points = sample_occupied_points(occupied_points);
       ROS_INFO_STREAM("Creating rotations for " << occupied_points.size() << " hits.");
       for (size_t n = 0; n < problem_def.n_rotations; n++) {
         float th = problem_def.dr * n;
@@ -390,11 +393,26 @@ class BranchAndBoundMatcher {
       }
     }
 
+    Hits sample_occupied_points(const Hits& occupied_points) {
+      if ( kHitsSampleThreshold <= 0 ) {
+        return occupied_points;
+      }
+      Hits shuffled = occupied_points;
+      std::random_shuffle(shuffled.begin(), shuffled.end());
+      Hits sampled;
+      size_t n_hits = std::min(shuffled.size(), static_cast<size_t>(kHitsSampleThreshold));
+      for ( size_t i = 0; i < n_hits; i++ ) {
+        sampled.push_back(shuffled[i]);
+      }
+      return sampled;
+    }
+
     const nav_msgs::OccupancyGrid& refmap() const { return refmap_; }
 
   private:
     float kAcceptanceRatio;
     int kRotationDownsampling;
+    int kHitsSampleThreshold;
     nav_msgs::OccupancyGrid refmap_;
     std::vector<Array2D<ArrayType>> precomputed_max_fields_;
     bool ref_is_set_;
@@ -420,10 +438,13 @@ class MapMatcherNode {
       // read params
       float acceptance_ratio;
       int rotation_downsampling;
+      int hits_sample_threshold;
       nh_.param<float>("acceptance_ratio", acceptance_ratio, 0.5);
       nh_.param("rotation_downsampling", rotation_downsampling, 1);
+      nh_.param("hits_sample_threshold", hits_sample_threshold, 0);
       // Initialize bnb matcher
-      bnb_ = BranchAndBoundMatcher(acceptance_ratio, rotation_downsampling, req.reference_map);
+      bnb_ = BranchAndBoundMatcher(acceptance_ratio, rotation_downsampling, hits_sample_threshold,
+          req.reference_map);
       VLOG(3) << "";
       return true;
      }
