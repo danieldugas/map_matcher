@@ -2,7 +2,8 @@
 <launch>
   <arg name="slam_map_topic" default="/map" doc="topic name for the slam map to be matched to the reference"/>>
   <arg name="reference_map_name" default="map" doc="the name of the reference map to load (NAME.pgm, NAME.yaml)"/>
-  <arg name="maps_folder" default="~/maps" doc="the folder from which to load the reference map"/>
+  <arg name="maps_folder" default="$(env HOME)/maps" doc="the folder from which to load the reference map"/>
+  <arg name="reference_map_frame" default="reference_map" doc="name to be given to the frame of the reference map" />
 
   <node pkg="map_matcher" type="map_matcher_server" name="map_matcher_server" output="screen">
     <param name="rotation_downsampling" type="double" value="2.0"/>
@@ -12,5 +13,13 @@
     <remap from="/slam_map" to="$(arg slam_map_topic)" />
     <param name="reference_map_name" type="string" value="$(arg reference_map_name)" />
     <param name="maps_folder" type="string" value="$(arg maps_folder)" />
+    <param name="reference_map_frame" type="string" value="$(arg reference_map_frame)" />
   </node>
+
+  <!-- Publish reference map, for visualization only -->
+  <node pkg="map_server" type="map_server" name="sim_map_server" args="$(arg maps_folder)/$(arg reference_map_name).yaml">
+    <param name="frame_id" value="$(arg reference_map_frame)" />
+    <remap from="/map" to="/reference_map"/>
+  </node>
+
 </launch>
