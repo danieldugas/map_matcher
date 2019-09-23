@@ -11,16 +11,16 @@ After successful map matching, both maps should be visible in rviz, and transfor
 
 ![a successful match in rviz](https://github.com/danieldugas/map_matcher/blob/master/map_matcher.png)
 
-## map_matcher node
-The map_matcher node by itself exposes two services:
+## map_matcher_server node
+The map_matcher_server node by itself exposes two services:
 - set_reference_map (map_matcher.srv.SetReferenceMap) 
 - match_to_reference (map_matcher.srv.MatchToReference)
 
-set_reference_map: expects a map in the format nav_msgs/OccupancyGrid.
-match_to_reference: runs the branch and bound matching algorithm. 
-                    expects a map in the format nav_msgs/OccupancyGrid
-                    returns the match information (success, pose, angle, score)
-                    
+set_reference_map: expects a map in the format nav_msgs/OccupancyGrid.  
+match_to_reference: runs the branch and bound matching algorithm.   
+                    expects a map in the format nav_msgs/OccupancyGrid  
+                    returns the match information (success, pose, angle, score)  
+
 Both maps should have similar resolutions for the matching algorithm to succeed.
 
 

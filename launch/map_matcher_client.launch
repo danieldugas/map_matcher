@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<launch>
+  <node pkg="map_matcher" type="map_matcher_client" name="map_matcher_client" output="screen">
+    <remap from="/slam_map" to="/map" />
+    <param name="reference_map_name" type="string" value="map" />
+    <param name="maps_folder" type="string" value="~/maps" />
+  </node>
+</launch>

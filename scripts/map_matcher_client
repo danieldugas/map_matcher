@@ -126,10 +126,10 @@ class MotionPlanner(object):
                     slam_map.resolution, self.global_map_8ds.resolution))
         # MapMatcher
         try:
-            setref_srv = rospy.ServiceProxy('/map_matcher/set_reference_map', SetReferenceMap)
+            setref_srv = rospy.ServiceProxy('/map_matcher_server/set_reference_map', SetReferenceMap)
             setref_srv(self.numpy_to_occupancy_grid_msg(self.global_map_8ds.occupancy,
                 self.global_map_8ds, self.kGlobalMapFrame))
-            match_srv = rospy.ServiceProxy('/map_matcher/match_to_reference', MatchToReference)
+            match_srv = rospy.ServiceProxy('/map_matcher_server/match_to_reference', MatchToReference)
             resp = match_srv(
                     self.numpy_to_occupancy_grid_msg(slam_map.occupancy, slam_map, msg.header.frame_id),
                     self.bnb_theta_prior)
@@ -287,7 +287,7 @@ class Map2D(object):
 
 
 if __name__ == "__main__":
-    rospy.init_node("localizer_example")
+    rospy.init_node("map_matcher_client")
     print("Loading reference map.")
     folder = rospy.get_param("~maps_folder", "~/maps/")
     filename =  rospy.get_param("~reference_map_name", "map")

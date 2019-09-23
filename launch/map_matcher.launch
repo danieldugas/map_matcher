@@ -1,7 +1,16 @@
 <?xml version="1.0"?>
 <launch>
-  <node pkg="map_matcher" type="map_matcher" name="map_matcher" output="screen">
+  <arg name="slam_map_topic" default="/map" doc="topic name for the slam map to be matched to the reference"/>>
+  <arg name="reference_map_name" default="map" doc="the name of the reference map to load (NAME.pgm, NAME.yaml)"/>
+  <arg name="maps_folder" default="~/maps" doc="the folder from which to load the reference map"/>
+
+  <node pkg="map_matcher" type="map_matcher_server" name="map_matcher_server" output="screen">
     <param name="rotation_downsampling" type="double" value="2.0"/>
-    <param name="hits_sample_threshold" type="double" value="300"/>
+  </node>
+
+  <node pkg="map_matcher" type="map_matcher_client" name="map_matcher_client" output="screen">
+    <remap from="/slam_map" to="$(arg slam_map_topic)" />
+    <param name="reference_map_name" type="string" value="$(arg reference_map_name)" />
+    <param name="maps_folder" type="string" value="$(arg maps_folder)" />
   </node>
 </launch>

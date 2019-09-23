@@ -16,7 +16,7 @@
 #include "map_matcher/SetReferenceMap.h"
 #include "map_matcher/MatchToReference.h"
 
-namespace map_matcher {
+namespace map_matcher_server {
 
 typedef int8_t ArrayType;
 typedef std::vector<ArrayType> ArrayData;
@@ -478,15 +478,15 @@ class MapMatcherNode {
 }; // class MapMatcherNode
 
 
-} // namespace map_matcher
+} // namespace map_matcher_server
 
-using namespace map_matcher;
+using namespace map_matcher_server;
 
 int main(int argc, char **argv) {
 
-  ros::init(argc, argv, "map_matcher");
+  ros::init(argc, argv, "map_matcher_server");
   ros::NodeHandle n("~"); // private node handle (~ gets replaced with node name)
-  MapMatcherNode map_matcher(n);
+  MapMatcherNode map_matcher_server(n);
 
   try {
     ros::spin();
