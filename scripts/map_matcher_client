@@ -33,7 +33,7 @@ class MotionPlanner(object):
         self.kSlamMapTopic = "/slam_map"
         self.kGlobalMatchTopic = "debug/GlobalMatch"
         self.kGlobalMapFrame = rospy.get_param("~reference_map_frame", "bnb_map")
-        self.kPublishLocalizationPeriod = rospy.Duration(1.) # [s]
+        self.kPublishLocalizationPeriod = rospy.Duration(rospy.get_param("~tf_republishing_frequency", 0.1)) # [s]
 
         self.global_map_8ds = self.global_map.as_coarse_map2d().as_coarse_map2d().as_coarse_map2d()
         self.bnb_theta_prior = 0
