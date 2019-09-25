@@ -158,13 +158,16 @@ class BranchAndBoundSolution {
     int pose_i;
     int pose_j;
     float theta;
+    float dtheta;
+    int max_score;
 }; // BranchAndBoundSolution
 
 class BranchAndBoundProblemDef {
   public:
     BranchAndBoundProblemDef() {}
     ~BranchAndBoundProblemDef() {}
-    int window_offset;
+    int window_offset_i;
+    int window_offset_j;
     int window_size_i;
     int window_size_j;
     int init_height;
@@ -178,13 +181,7 @@ class BranchAndBoundProblemDef {
 class BranchAndBoundMatcher {
   public:
     BranchAndBoundMatcher() : ref_is_set_(false) {}
-    BranchAndBoundMatcher(const float& acceptance_ratio,
-                          const int& rotation_downsampling,
-                          const int& hits_sample_threshold,
-                          const nav_msgs::OccupancyGrid& refmap) :
-        kAcceptanceRatio(acceptance_ratio),
-        kRotationDownsampling(rotation_downsampling),
-        kHitsSampleThreshold(hits_sample_threshold),
+    BranchAndBoundMatcher(const nav_msgs::OccupancyGrid& refmap) :
         refmap_(refmap),
         ref_is_set_(true) {
       precomputed_max_fields_.emplace_back(refmap.data, refmap.info);
@@ -193,36 +190,59 @@ class BranchAndBoundMatcher {
     ~BranchAndBoundMatcher() {}
 
     const BranchAndBoundSolution match(const nav_msgs::OccupancyGrid& map,
-        const float& theta_prior) {
+        const map_matcher::MatchToReference::Request& req) {
       VLOG(3) << "";
-      BranchAndBoundSolution result;
+      BranchAndBoundSolution solution;
       if ( !ref_is_set_ ) {
-        return result;
+        return solution;
       }
       // Initialize problem
       ros::Time tic = ros::Time::now();
       BranchAndBoundProblemDef problem_def;
       // Window characteristics
-      int half_length = std::max(shape_i(map.info), shape_j(map.info)) / 2;
-      problem_def.window_offset = half_length;
-      problem_def.window_size_i = shape_i(refmap_.info) + 2 * half_length;
-      problem_def.window_size_j = shape_j(refmap_.info) + 2 * half_length;
+      if ( req.is_window_prior ) {
+        problem_def.window_offset_i = req.window_prior_offset_i;
+        problem_def.window_offset_j = req.window_prior_offset_j;
+        problem_def.window_size_i = req.window_prior_size_i;
+        problem_def.window_size_j = req.window_prior_size_j;
+      } else {
+        int half_length = std::max(shape_i(map.info), shape_j(map.info)) / 2;
+        problem_def.window_offset_i = half_length;
+        problem_def.window_offset_j = half_length;
+        problem_def.window_size_i = shape_i(refmap_.info) + 2 * half_length;
+        problem_def.window_size_j = shape_j(refmap_.info) + 2 * half_length;
+      }
       // Height of the first children nodes
       problem_def.init_height = std::ceil(std::log2(std::max(problem_def.window_size_i,
                                                              problem_def.window_size_j))) - 1;
       // Precompute the max fields up to this height
       precompute_max_fields(problem_def.init_height);
       // Rotational resolution
-      problem_def.dr = kRotationDownsampling * 1. / sqrt(
+      problem_def.dr = req.rotation_downsampling * 1. / sqrt(
           shape_i(map.info) * shape_i(map.info) +
           shape_j(map.info) * shape_j(map.info) );
       problem_def.n_rotations = 2. * M_PI / problem_def.dr - 1;
       // Rotate map accordingly
       Hits occupied_points = as_occupied_points_ij(map);
-      occupied_points = sample_occupied_points(occupied_points);
-      ROS_INFO_STREAM("Creating rotations for " << occupied_points.size() << " hits.");
+      size_t unsampled_size = occupied_points.size();
+      occupied_points = sample_occupied_points(occupied_points, req.hits_sample_threshold);
+      ROS_INFO_STREAM("Creating rotations for " << occupied_points.size() << " " <<
+          " (sampled from " << unsampled_size << ") hits.");
       for (size_t n = 0; n < problem_def.n_rotations; n++) {
         float th = problem_def.dr * n;
+        // exclude angles outside of angle_window if an angle_window is given
+        float angle_difference = th - req.theta_prior_angle;
+        angle_difference += (angle_difference>M_PI) ? -2.*M_PI : (angle_difference<-M_PI) ? 2.*M_PI : 0;
+        if ( std::abs(angle_difference) > req.theta_prior_angle_window_half_size ) {
+          continue;
+        }
+        problem_def.rotation_angles.push_back(th);
+        problem_def.rotated_hits.push_back(
+            rotate_hits_around_map_center(occupied_points, th, map.info));
+      }
+      // make sure the angle prior is considered if given
+      if ( req.is_theta_prior ) {
+        float th = req.theta_prior_angle;
         problem_def.rotation_angles.push_back(th);
         problem_def.rotated_hits.push_back(
             rotate_hits_around_map_center(occupied_points, th, map.info));
@@ -230,27 +250,27 @@ class BranchAndBoundMatcher {
       ros::Time toc = ros::Time::now();
       ROS_INFO_STREAM("Problem initialization took " << toc - tic << " s");
       ROS_INFO_STREAM("  " << problem_def.window_size_i << "x" << problem_def.window_size_j << " search window");
-      ROS_INFO_STREAM("  " << problem_def.n_rotations << " rotations");
+      ROS_INFO_STREAM("  " << problem_def.rotation_angles.size() << " rotations");
       ROS_INFO_STREAM("  precomputed max fields up to height: " << problem_def.init_height);
       //
 
       // Initialize DFS state
-      float best_score = kAcceptanceRatio * problem_def.rotated_hits[0].size();
-      ROS_INFO_STREAM("Score threshold: " << best_score);
+      float best_score = req.acceptance_ratio * problem_def.rotated_hits[0].size();
+      ROS_INFO_STREAM("Score threshold: " << best_score << " (" << req.acceptance_ratio*100 << "%)");
       Node best_leaf_node(-1, 0, 0, 0);
       std::vector<Node> node_list;
 
 
       // Expand rotation nodes
       tic = ros::Time::now();
-      for (size_t n = 0; n < problem_def.n_rotations; n++) {
+      for (size_t n = 0; n < problem_def.rotation_angles.size(); n++) {
         Node rot_node(problem_def.init_height + 1, n, 0, 0);
         expand_node(rot_node, problem_def, node_list);
       }
-      // Sort by closeness to theta_prior if given
-      if ( theta_prior ) {
+      // Sort by closeness to req.theta_prior_angle if given
+      if ( req.is_theta_prior ) {
         std::sort(node_list.begin(), node_list.end(), std::bind(gt_angles,
-            std::placeholders::_1, std::placeholders::_2, theta_prior));
+            std::placeholders::_1, std::placeholders::_2, req.theta_prior_angle));
       } else {
         std::sort(node_list.begin(), node_list.end(), gt);
       }
@@ -279,13 +299,15 @@ class BranchAndBoundMatcher {
 
       // Output
       if ( best_leaf_node.h != -1 ) { // no solution found
-        result.score = best_score;
-        result.pose_i = best_leaf_node.i - problem_def.window_offset;
-        result.pose_j = best_leaf_node.j - problem_def.window_offset;
-        result.theta = best_leaf_node.a * problem_def.dr;
+        solution.score = best_score;
+        solution.pose_i = best_leaf_node.i - problem_def.window_offset_i;
+        solution.pose_j = best_leaf_node.j - problem_def.window_offset_j;
+        solution.theta = problem_def.rotation_angles[best_leaf_node.a];
+        solution.dtheta = problem_def.dr;
+        solution.max_score = occupied_points.size();
       }
       VLOG(3) << "";
-      return result;
+      return solution;
     }
 
     void expand_node(const Node& node, const BranchAndBoundProblemDef& problem_def,
@@ -325,10 +347,12 @@ class BranchAndBoundMatcher {
 
       int score = 0;
       int o_f = pow(2, node.h) - 1; // max_field offset
-      int o_w = problem_def.window_offset; // window offset
+      int oi_w = problem_def.window_offset_i; // window offset
+      int oj_w = problem_def.window_offset_j; // window offset
       // move hits to node_pos in window frame,
       // then coordinates from window frame to field frame
-      int o = - o_w + o_f;
+      int oi = - oi_w + o_f;
+      int oj = - oj_w + o_f;
       int fs_i = field.shape_i;
       int fs_j = field.shape_j;
       for (size_t n = 0; n < hits.size(); n++) {
@@ -337,8 +361,8 @@ class BranchAndBoundMatcher {
         int i = ij.i;
         int j = ij.j;
         // in field frame
-        int i_f = (i + node.i + o);
-        int j_f = (j + node.j + o);
+        int i_f = (i + node.i + oi);
+        int j_f = (j + node.j + oj);
         if ( i_f < 0 || j_f < 0 || i_f >= fs_i || j_f >= fs_j ){
           continue;
         }
@@ -393,14 +417,14 @@ class BranchAndBoundMatcher {
       }
     }
 
-    Hits sample_occupied_points(const Hits& occupied_points) {
-      if ( kHitsSampleThreshold <= 0 ) {
+    Hits sample_occupied_points(const Hits& occupied_points, const int& threshold) {
+      if ( threshold <= 0 ) {
         return occupied_points;
       }
       Hits shuffled = occupied_points;
       std::random_shuffle(shuffled.begin(), shuffled.end());
       Hits sampled;
-      size_t n_hits = std::min(shuffled.size(), static_cast<size_t>(kHitsSampleThreshold));
+      size_t n_hits = std::min(shuffled.size(), static_cast<size_t>(threshold));
       for ( size_t i = 0; i < n_hits; i++ ) {
         sampled.push_back(shuffled[i]);
       }
@@ -410,9 +434,6 @@ class BranchAndBoundMatcher {
     const nav_msgs::OccupancyGrid& refmap() const { return refmap_; }
 
   private:
-    float kAcceptanceRatio;
-    int kRotationDownsampling;
-    int kHitsSampleThreshold;
     nav_msgs::OccupancyGrid refmap_;
     std::vector<Array2D<ArrayType>> precomputed_max_fields_;
     bool ref_is_set_;
@@ -423,6 +444,7 @@ class MapMatcherNode {
 
   public:
     MapMatcherNode(ros::NodeHandle& n) : nh_(n) {
+      bnb_ = new  BranchAndBoundMatcher();
       // Services
       setref_srv_ = nh_.advertiseService(
           "set_reference_map", &MapMatcherNode::set_reference_map_service, this);
@@ -435,16 +457,9 @@ class MapMatcherNode {
     bool set_reference_map_service(map_matcher::SetReferenceMap::Request& req,
                                    map_matcher::SetReferenceMap::Response& res) {
       VLOG(3) << "";
-      // read params
-      float acceptance_ratio;
-      int rotation_downsampling;
-      int hits_sample_threshold;
-      nh_.param<float>("acceptance_ratio", acceptance_ratio, 0.5);
-      nh_.param("rotation_downsampling", rotation_downsampling, 1);
-      nh_.param("hits_sample_threshold", hits_sample_threshold, 0);
       // Initialize bnb matcher
-      bnb_ = BranchAndBoundMatcher(acceptance_ratio, rotation_downsampling, hits_sample_threshold,
-          req.reference_map);
+      delete bnb_;
+      bnb_ = new BranchAndBoundMatcher(req.reference_map);
       VLOG(3) << "";
       return true;
      }
@@ -452,12 +467,14 @@ class MapMatcherNode {
     bool match_to_reference_service(map_matcher::MatchToReference::Request& req,
                                     map_matcher::MatchToReference::Response& res) {
       VLOG(3) << "matchcallback";
-      const BranchAndBoundSolution solution = bnb_.match(req.source_map, req.theta_prior);
+      const BranchAndBoundSolution solution = bnb_->match(req.source_map, req);
       res.found_valid_match = ( solution.score != -1 );
       res.i_source_origin_in_reference = solution.pose_i;
       res.j_source_origin_in_reference = solution.pose_j;
       res.theta = solution.theta;
       res.score = solution.score;
+      res.dtheta = solution.dtheta;
+      res.max_score = solution.max_score;
       VLOG(3) << "";
       return true;
      }
@@ -473,7 +490,7 @@ class MapMatcherNode {
     ros::ServiceServer match_srv_;
 
     // State
-    BranchAndBoundMatcher bnb_;
+    BranchAndBoundMatcher* bnb_;
 
 }; // class MapMatcherNode
 

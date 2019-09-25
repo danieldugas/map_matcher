@@ -32,6 +32,10 @@ An example launch file for running the map_matcher_server standalone can be foun
 
 ### Parameters
 
-- rotation_downsampling (float, default 1) : multiplies the default angular resolution, increasing this value leads to less accurate results but faster execution. should be 1 or larger than 1.
+#### map_matcher_client parameters
+- acceptance_ratio (float, default 0.5) : Proportion of occupied points in the source map that must match to an occupied point in the reference map in order for the match to be accepted. should be a value between 0 and 1. Higher is stricter (at 1, all points must match) and faster. A good default value is 0.5
+- rotation_downsampling (int, default 1) : multiplies the default angular resolution, increasing this value leads to less accurate results but faster execution. should be 1 or larger than 1.
 - hits_sample_threshold (int, default 0) : if a value n other than 0, n occupied points in the source map will be sampled randomly to reduce computation. should be 0 or a positive integer.
-- acceptance_ratio (float, default 0.5) : Proportion of occupied points in the source map that must have a match in the reference map in order for the match to be accepted. should be a value between 0 and 1.
+
+#### map_matcher_server parameters
+The above parameters are passed at runtime from client to server with each map request via the [MatchToReference](https://raw.githubusercontent.com/danieldugas/map_matcher/master/srv/MatchToReference.srv) service request.

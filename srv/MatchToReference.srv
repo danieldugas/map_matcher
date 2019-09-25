@@ -1,9 +1,35 @@
 nav_msgs/OccupancyGrid source_map
-float32 theta_prior # optional, default 0
+## Parameters
+# acceptance_ratio (float 0-1, default 0.5) : allows the algorithm to outright reject matches where less than N% of
+# the occupied points in the map match an occupied point in the reference map
+# higher is stricter (at 1, all points must match) and faster. A good default value is 0.5.
+float32 acceptance_ratio
+# rotation_downsampling (float, default 1) : multiplies the default angular resolution,
+# increasing this value leads to less accurate results but faster execution.
+# should be 1 or larger than 1.
+int32 rotation_downsampling
+# hits_sample_threshold (int, default 0) : if a value n other than 0, n occupied points in the
+# source map will be sampled randomly to reduce computation. should be 0 or a positive integer.
+int32 hits_sample_threshold
+## Prior (advanced)
+# Giving a prior is not necessary, but it can speed up the algorithm by constraining
+# the possible positions and rotations it considers
+bool is_theta_prior # optional, default false
+bool is_window_prior # optional, default false
+# only used if is_window_prior is true
+int32 window_prior_offset_i
+int32 window_prior_offset_j
+int32 window_prior_size_i
+int32 window_prior_size_j
+# only used if is_theta_prior is true
+float32 theta_prior_angle # must be given in [0, 2pi[ range!
+float32 theta_prior_angle_window_half_size # [0, 2pi[ in radians.
 ---
 bool found_valid_match
 int32 i_source_origin_in_reference
 int32 j_source_origin_in_reference
 float32 theta
 float32 score
+float32 dtheta # theta resolution used in the search
+int32 max_score # maximum possible score for the requested match
 
