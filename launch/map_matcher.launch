@@ -4,12 +4,13 @@
   <arg name="reference_map_name" default="map" doc="the name of the reference map to load (NAME.pgm, NAME.yaml)"/>
   <arg name="maps_folder" default="$(env HOME)/maps" doc="the folder from which to load the reference map"/>
   <arg name="reference_map_frame" default="reference_map" doc="name to be given to the frame of the reference map" />
+  <arg name="output" default="screen" doc="set to log to silence map_matcher nodes"/>
 
-  <node pkg="map_matcher" type="map_matcher_server" name="map_matcher_server" output="screen">
+  <node pkg="map_matcher" type="map_matcher_server" name="map_matcher_server" output="$(arg output)">
     <param name="rotation_downsampling" type="double" value="2.0"/>
   </node>
 
-  <node pkg="map_matcher" type="map_matcher_client" name="map_matcher_client" output="screen">
+  <node pkg="map_matcher" type="map_matcher_client" name="map_matcher_client" output="$(arg output)">
     <remap from="/slam_map" to="$(arg slam_map_topic)" />
     <param name="reference_map_name" type="string" value="$(arg reference_map_name)" />
     <param name="maps_folder" type="string" value="$(arg maps_folder)" />
