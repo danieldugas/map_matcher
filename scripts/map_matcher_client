@@ -35,7 +35,10 @@ class MotionPlanner(object):
         self.kGlobalMapFrame = rospy.get_param("~reference_map_frame", "bnb_map")
         self.kPublishLocalizationPeriod = rospy.Duration(rospy.get_param("~tf_republishing_frequency", 0.1)) # [s]
 
-        self.global_map_8ds = self.global_map.as_coarse_map2d().as_coarse_map2d().as_coarse_map2d()
+        self.global_map_8ds = self.global_map
+        n_ds = rospy.get_param("~reference_map_downsampling_passes", 3)
+        for i in range(n_ds):
+            self.global_map_8ds = self.global_map_8ds.as_coarse_map2d()
         self.bnb_theta_prior = 0
         self.bnb_last_tf = None
 
@@ -120,11 +123,19 @@ class MotionPlanner(object):
         # Match map resolutions
         res_ratio = int(np.log2(self.global_map_8ds.resolution / slam_map.resolution))
         for n in range(res_ratio):
-            slam_map = slam_map.as_coarse_map2d()
+            try:
+                slam_map = slam_map.as_coarse_map2d()
+            except ValueError:
+                # map size not divisible by 2, remove one column/row
+                if slam_map.occupancy.shape[0] % 2:
+                    slam_map.occupancy = slam_map.occupancy[:-1, :]
+                if slam_map.occupancy.shape[1] % 2:
+                    slam_map.occupancy = slam_map.occupancy[:, :-1]
+                slam_map = slam_map.as_coarse_map2d()
         if abs(slam_map.resolution - self.global_map_8ds.resolution) > (slam_map.resolution * 0.01):
             raise ValueError(
-                "Failed to match map resolution ({}) with reference map resolution ({})".format(
-                    slam_map.resolution, self.global_map_8ds.resolution))
+                "Failed to match map resolution ({}) with reference map resolution ({}). res_ratio: {}".format(
+                    slam_map.resolution, self.global_map_8ds.resolution, res_ratio))
         # MapMatcher
         try:
             setref_srv = rospy.ServiceProxy('/map_matcher_server/set_reference_map', SetReferenceMap)

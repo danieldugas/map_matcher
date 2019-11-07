@@ -4,6 +4,7 @@
   <arg name="reference_map_name" default="map" doc="the name of the reference map to load (NAME.pgm, NAME.yaml)"/>
   <arg name="maps_folder" default="$(env HOME)/maps" doc="the folder from which to load the reference map"/>
   <arg name="reference_map_frame" default="reference_map" doc="name to be given to the frame of the reference map" />
+  <arg name="reference_map_downsampling_passes" default="3" doc="downsampling of the reference map" />
   <arg name="output" default="screen" doc="set to log to silence map_matcher nodes"/>
 
 
@@ -18,6 +19,7 @@
     <param name="reference_map_name" type="string" value="$(arg reference_map_name)" />
     <param name="maps_folder" type="string" value="$(arg maps_folder)" />
     <param name="reference_map_frame" type="string" value="$(arg reference_map_frame)" />
+    <param name="reference_map_downsampling_passes" type="int" value="$(arg reference_map_downsampling_passes)" />
   </node>
 
   <!-- Publish reference map, for visualization only -->
