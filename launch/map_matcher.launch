@@ -23,7 +23,7 @@
   </node>
 
   <!-- Publish reference map, for visualization only -->
-  <node pkg="map_server" type="map_server" name="sim_map_server" args="$(arg maps_folder)/$(arg reference_map_name).yaml">
+  <node pkg="map_server" type="map_server" name="ref_map_server" args="$(arg maps_folder)/$(arg reference_map_name).yaml">
     <param name="frame_id" value="$(arg reference_map_frame)" />
     <remap from="/map" to="/reference_map"/>
   </node>
