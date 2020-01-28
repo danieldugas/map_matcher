@@ -12,6 +12,7 @@ from yaml import load
 from matplotlib.pyplot import imread
 
 from nav_msgs.msg import OccupancyGrid
+from std_msgs.msg import String
 from visualization_msgs.msg import Marker
 
 from map_matcher.srv import *
@@ -32,6 +33,7 @@ class MotionPlanner(object):
         self.global_map = map2d # occupancy grid
         self.kSlamMapTopic = "/slam_map"
         self.kGlobalMatchTopic = "debug/GlobalMatch"
+        self.kSpeechTopic = "/localization_speech"
         self.kGlobalMapFrame = rospy.get_param("~reference_map_frame", "bnb_map")
         self.kPublishLocalizationPeriod = rospy.Duration(rospy.get_param("~tf_republishing_frequency", 0.1)) # [s]
 
@@ -46,6 +48,7 @@ class MotionPlanner(object):
         # Initialize ros
         self.tf_broadcaster = tf.TransformBroadcaster()
         # Publishers
+        self.speech_pub = rospy.Publisher(self.kSpeechTopic, String, queue_size=10)
         self.global_match_pub = rospy.Publisher(self.kGlobalMatchTopic, OccupancyGrid, queue_size=1)
         self.hr_global_match_pub = rospy.Publisher(self.kGlobalMatchTopic+"_high_res", OccupancyGrid, queue_size=1)
         # Services
@@ -275,6 +278,9 @@ class MotionPlanner(object):
         self.tf_broadcaster.sendTransform(*self.bnb_last_tf)
         self.hr_global_match_pub.publish(self.numpy_to_occupancy_grid_msg(debug_match, self.global_map, self.kGlobalMapFrame))
         print("Published map match.")
+        speechmsg = String()
+        speechmsg.data = "Localization found!"
+        self.speech_pub.publish(speechmsg)
         return
 
     def publish_localization_callback(self, event=None):
