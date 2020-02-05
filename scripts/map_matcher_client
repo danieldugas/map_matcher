@@ -25,7 +25,7 @@ def filter_if_out_of_bounds(indices_list, a):
             )
     return indices_list[valid_mask]
 
-class MotionPlanner(object):
+class MapMatcherClient(object):
     def __init__(self, map2d, aggressive_locomotion=True, debug=False):
         # Initialize variables
         # x axis points "forward" from the robot, y points "left"
@@ -165,6 +165,11 @@ class MotionPlanner(object):
         else:
             print("No solution found.")
             return
+        # otherwise a solution is found
+        if self.bnb_last_tf is None:
+            speechmsg = String()
+            speechmsg.data = "Localization found!"
+            self.speech_pub.publish(speechmsg)
         # Result
         self.bnb_theta_prior = theta
         print("Branch and bound solution found. score: {} ({:.1f}% match), pose: {}, theta: {}".format(score,100.*score/max_score, pose,theta))
@@ -277,10 +282,7 @@ class MotionPlanner(object):
                 ]
         self.tf_broadcaster.sendTransform(*self.bnb_last_tf)
         self.hr_global_match_pub.publish(self.numpy_to_occupancy_grid_msg(debug_match, self.global_map, self.kGlobalMapFrame))
-        print("Published map match.")
-        speechmsg = String()
-        speechmsg.data = "Localization found!"
-        self.speech_pub.publish(speechmsg)
+        print("Published hi-res map match.")
         return
 
     def publish_localization_callback(self, event=None):
@@ -401,5 +403,5 @@ if __name__ == "__main__":
         print(e)
         raise IOError("Failed to load reference map. Make sure {}.yaml and {}.pgm"
                " are in the {} folder.".format(filename, filename, folder))
-    motion_planner = MotionPlanner(map_)
-    motion_planner.run()
+    map_matcher_client = MapMatcherClient(map_)
+    map_matcher_client.run()
