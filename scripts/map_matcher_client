@@ -35,7 +35,8 @@ class MapMatcherClient(object):
         self.kGlobalMatchTopic = "debug/GlobalMatch"
         self.kSpeechTopic = "/localization_speech"
         self.kGlobalMapFrame = rospy.get_param("~reference_map_frame", "bnb_map")
-        self.kPublishLocalizationPeriod = rospy.Duration(rospy.get_param("~tf_republishing_frequency", 0.1)) # [s]
+        self.kPublishLocalizationPeriod = rospy.Duration(
+            rospy.get_param("~tf_republishing_frequency", 0.1)) # [s]
 
         self.global_map_8ds = self.global_map
         n_ds = rospy.get_param("~reference_map_downsampling_passes", 3)
@@ -146,14 +147,15 @@ class MapMatcherClient(object):
                 self.global_map_8ds, self.kGlobalMapFrame))
             match_srv = rospy.ServiceProxy('/map_matcher_server/match_to_reference', MatchToReference)
             resp = match_srv(
-                    self.numpy_to_occupancy_grid_msg(slam_map.occupancy, slam_map, msg.header.frame_id),
-                    rospy.get_param('~acceptance_ratio', 0.5),
-                    rospy.get_param('~rotation_downsampling', 2),
-                    rospy.get_param('~hits_sample_threshold', 1000),
-                    self.bnb_theta_prior != 0,
-                    0,
-                    0, 0, 0, 0,
-                    self.bnb_theta_prior, 2*np.pi)
+                self.numpy_to_occupancy_grid_msg(slam_map.occupancy, slam_map, msg.header.frame_id),
+                rospy.get_param('~acceptance_ratio', 0.5),
+                rospy.get_param('~rotation_downsampling', 2),
+                rospy.get_param('~hits_sample_threshold', 1000),
+                self.bnb_theta_prior != 0,
+                0,
+                0, 0, 0, 0,
+                self.bnb_theta_prior, 2 * np.pi
+            )
         except rospy.ServiceException as e:
             print(e)
             return
@@ -192,17 +194,9 @@ class MapMatcherClient(object):
         # inverse of transform
         o_xy_inv = self.inverse_pose2d(np.array([o_xy[0], o_xy[1], o_th]))
         stamp = rospy.Time.now()
-        self.bnb_last_tf = [
-                (o_xy_inv[0], o_xy_inv[1], 0),
-                tf.transformations.quaternion_from_euler(0,0,o_xy_inv[2]),
-                stamp,
-                self.kGlobalMapFrame,
-                msg.header.frame_id,
-                ]
-        self.tf_broadcaster.sendTransform(*self.bnb_last_tf)
         self.global_match_pub.publish(self.numpy_to_occupancy_grid_msg(debug_match, self.global_map_8ds, self.kGlobalMapFrame))
         print("Published map match.")
-        # -----------------------------
+        # HIGH RESOLUTION -----------------------------
         print("Trying high-resolution match using low resolution prior.")
         # Try again at full resolution using returned prior for high precision matching
         # slam map as list of hits
@@ -221,68 +215,69 @@ class MapMatcherClient(object):
         try:
             setref_srv = rospy.ServiceProxy('/map_matcher_server/set_reference_map', SetReferenceMap)
             setref_srv(self.numpy_to_occupancy_grid_msg(self.global_map.occupancy,
-                self.global_map, self.kGlobalMapFrame))
+                                                        self.global_map, self.kGlobalMapFrame))
             match_srv = rospy.ServiceProxy('/map_matcher_server/match_to_reference', MatchToReference)
             old_resp = resp
             resp = match_srv(
-                    self.numpy_to_occupancy_grid_msg(slam_map.occupancy, slam_map, msg.header.frame_id),
-                    0.1, # lower acceptance ratio, as the constrained refinement can not do much harm
-                    1, # no rotation downsampling, as refinement is fast
-                    0, # same reason
-                    1,
-                    1,
-                    # window_offsets are positive if the window is shifted to the bottom left
-                    # by (my own silly) convention, hence the negative sign
-                    -(old_resp.i_source_origin_in_reference*8 - 8),
-                    -(old_resp.j_source_origin_in_reference*8 - 8),
-                    2*8, # coarse reference map has 8 times lower resolution
-                    2*8,
-                    old_resp.theta,
-                    old_resp.dtheta * 2.,
-                    )
+                self.numpy_to_occupancy_grid_msg(slam_map.occupancy, slam_map, msg.header.frame_id),
+                0.1,  # lower acceptance ratio, as the constrained refinement can not do much harm
+                1,  # no rotation downsampling, as refinement is fast
+                0,  # same reason
+                1,
+                1,
+                # window_offsets are positive if the window is shifted to the bottom left
+                # by (my own silly) convention, hence the negative sign
+                -(old_resp.i_source_origin_in_reference * 8 - 8),
+                -(old_resp.j_source_origin_in_reference * 8 - 8),
+                2 * 8,  # coarse reference map has 8 times lower resolution
+                2 * 8,
+                old_resp.theta,
+                old_resp.dtheta * 2.,
+            )
+            found_valid_hr_match = resp.found_valid_match
         except rospy.ServiceException as e:
             print(e)
-            return
-        if resp.found_valid_match:
+            found_valid_hr_match = False
+        if found_valid_hr_match:
             theta = resp.theta
             score = resp.score
             max_score = resp.max_score
             pose = np.array([resp.i_source_origin_in_reference, resp.j_source_origin_in_reference])
+            # Result
+            self.bnb_theta_prior = theta
+            print("High-res branch and bound solution found. score: {} ({:.1f}% match), pose: {}, theta: {}".format(score,100.*score/max_score, pose,theta))
+            hits = slam_map.as_occupied_points_ij()
+            hits = self.rotate_points_around_map_center(hits, theta, slam_map)
+            hits += pose
+            debug_match = self.global_map.occupancy * 1.
+            valid_hits = filter_if_out_of_bounds(hits, debug_match)
+            debug_match[tuple(valid_hits.T)] -= 2
+            # find Tf between slam and global map
+            q = msg.info.origin.orientation
+            slam_th = tf.transformations.euler_from_quaternion(np.array([q.x, q.y, q.z, q.w]))[2]
+            assert slam_th == 0
+            # origin of the slam map in bnb map frame
+            o_ij = self.rotate_points_around_map_center(
+                    slam_map.xy_to_ij(np.array([[0.,0.]]), clip_if_outside=False), theta, slam_map)
+            o_ij += np.array(pose)
+            o_th = slam_th + theta
+            o_xy = self.global_map.ij_to_xy(o_ij)[0]
+            # inverse of transform
+            o_xy_inv = self.inverse_pose2d(np.array([o_xy[0], o_xy[1], o_th]))
+            stamp = rospy.Time.now()
+            print("Published hi-res map match.")
+            self.hr_global_match_pub.publish(self.numpy_to_occupancy_grid_msg(debug_match, self.global_map, self.kGlobalMapFrame))
         else:
-            print("No solution found.")
-            return
-        # Result
-        self.bnb_theta_prior = theta
-        print("High-res branch and bound solution found. score: {} ({:.1f}% match), pose: {}, theta: {}".format(score,100.*score/max_score, pose,theta))
-        hits = slam_map.as_occupied_points_ij()
-        hits = self.rotate_points_around_map_center(hits, theta, slam_map)
-        hits += pose
-        debug_match = self.global_map.occupancy * 1.
-        valid_hits = filter_if_out_of_bounds(hits, debug_match)
-        debug_match[tuple(valid_hits.T)] -= 2
-        # find Tf between slam and global map
-        q = msg.info.origin.orientation
-        slam_th = tf.transformations.euler_from_quaternion(np.array([q.x, q.y, q.z, q.w]))[2]
-        assert slam_th == 0
-        # origin of the slam map in bnb map frame
-        o_ij = self.rotate_points_around_map_center(
-                slam_map.xy_to_ij(np.array([[0.,0.]]), clip_if_outside=False), theta, slam_map)
-        o_ij += np.array(pose)
-        o_th = slam_th + theta
-        o_xy = self.global_map.ij_to_xy(o_ij)[0]
-        # inverse of transform
-        o_xy_inv = self.inverse_pose2d(np.array([o_xy[0], o_xy[1], o_th]))
-        stamp = rospy.Time.now()
+            print("No high-res solution found. Using Low-res solution.")
+        # set and publish tf based on solution.
         self.bnb_last_tf = [
-                (o_xy_inv[0], o_xy_inv[1], 0),
-                tf.transformations.quaternion_from_euler(0,0,o_xy_inv[2]),
-                stamp,
-                self.kGlobalMapFrame,
-                msg.header.frame_id,
-                ]
+            (o_xy_inv[0], o_xy_inv[1], 0),
+            tf.transformations.quaternion_from_euler(0, 0, o_xy_inv[2]),
+            stamp,
+            self.kGlobalMapFrame,
+            msg.header.frame_id,
+        ]
         self.tf_broadcaster.sendTransform(*self.bnb_last_tf)
-        self.hr_global_match_pub.publish(self.numpy_to_occupancy_grid_msg(debug_match, self.global_map, self.kGlobalMapFrame))
-        print("Published hi-res map match.")
         return
 
     def publish_localization_callback(self, event=None):
