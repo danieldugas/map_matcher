@@ -6,10 +6,11 @@
   <arg name="reference_map_frame" default="reference_map" doc="name to be given to the frame of the reference map" />
   <arg name="reference_map_downsampling_passes" default="3" doc="downsampling of the reference map" />
   <arg name="output" default="screen" doc="set to log to silence map_matcher nodes"/>
+  <arg name="launch_prefix" default="" doc="launch prefix for map_matcher server" />
 
 
-  <node pkg="map_matcher" type="map_matcher_server" name="map_matcher_server" output="$(arg output)">
-  </node>
+  <node pkg="map_matcher" type="map_matcher_server" name="map_matcher_server" output="$(arg output)"
+    launch-prefix="$(arg launch_prefix)" />
 
   <node pkg="map_matcher" type="map_matcher_client" name="map_matcher_client" output="$(arg output)">
     <remap from="/slam_map" to="$(arg slam_map_topic)" />
