@@ -1,0 +1,9 @@
+<launch>
+  <arg name="slam_map_topic" default="/gmap" doc="topic name for the slam map to be matched to the reference"/>>
+  <arg name="output" default="screen" doc="set to log to silence map_matcher nodes"/>
+
+  <node pkg="map_matcher" type="manual_map_matcher" name="map_matcher_client"
+    output="$(arg output)" required="true">
+    <remap from="/slam_map" to="$(arg slam_map_topic)" />
+  </node>
+</launch>
