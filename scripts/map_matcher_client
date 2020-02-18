@@ -195,7 +195,6 @@ class MapMatcherClient(object):
         o_xy_inv = self.inverse_pose2d(np.array([o_xy[0], o_xy[1], o_th]))
         stamp = rospy.Time.now()
         self.global_match_pub.publish(self.numpy_to_occupancy_grid_msg(debug_match, self.global_map_8ds, self.kGlobalMapFrame))
-        print("Published map match.")
         # HIGH RESOLUTION -----------------------------
         print("Trying high-resolution match using low resolution prior.")
         # Try again at full resolution using returned prior for high precision matching
@@ -268,7 +267,7 @@ class MapMatcherClient(object):
             print("Published hi-res map match.")
             self.hr_global_match_pub.publish(self.numpy_to_occupancy_grid_msg(debug_match, self.global_map, self.kGlobalMapFrame))
         else:
-            print("No high-res solution found. Using Low-res solution.")
+            print("No high-res solution found. Publishing Low-res solution.")
         # set and publish tf based on solution.
         self.bnb_last_tf = [
             (o_xy_inv[0], o_xy_inv[1], 0),
