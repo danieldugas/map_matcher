@@ -111,7 +111,7 @@ class ManualMapMatcher(object):
                     self.UPDATE_PLOT = True
             if self.is_rb_pressed:
                 with self.lock:
-                    self.theta = self.rb_press_init_theta + 0.5 * np.pi * (
+                    self.theta = self.rb_press_init_theta - 0.5 * np.pi * (
                         event.xdata - self.rb_press_origin[0]) / self.global_map.occupancy().shape[0]
                     self.UPDATE_PLOT = True
 
