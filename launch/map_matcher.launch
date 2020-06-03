@@ -7,6 +7,7 @@
   <arg name="reference_map_downsampling_passes" default="3" doc="downsampling of the reference map" />
   <arg name="output" default="screen" doc="set to log to silence map_matcher nodes"/>
   <arg name="launch_prefix" default="" doc="launch prefix for map_matcher server" />
+  <arg name="acceptance_ratio" default="0.5" doc="amount of required matching points in order to accept potential match" />
 
 
   <node pkg="map_matcher" type="map_matcher_server" name="map_matcher_server" output="$(arg output)"
@@ -14,7 +15,7 @@
 
   <node pkg="map_matcher" type="map_matcher_client" name="map_matcher_client" output="$(arg output)">
     <remap from="/slam_map" to="$(arg slam_map_topic)" />
-<!--     <param name="acceptance_ratio" type="double" value="0.5" /> -->
+    <param name="acceptance_ratio" type="double" value="$(arg acceptance_ratio)" />
 <!--     <param name="rotation_downsampling" type="int" value="1"/> -->
 <!--     <param name="hits_sample_threshold" type="int" value="0"/> -->
     <param name="reference_map_name" type="string" value="$(arg reference_map_name)" />
