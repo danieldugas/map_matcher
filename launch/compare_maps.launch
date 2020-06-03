@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="reference_map_name" default="target" doc="the name of the reference map to load, without extension (NAME.pgm, NAME.yaml)"/>
+  <arg name="candidate_map_name" default="source" doc="the name of the candidate map to load, without extension (NAME.pgm, NAME.yaml)"/>
+  <arg name="maps_folder" default="$(env HOME)/maps" doc="the folder from which to load the reference map"/>
+  <arg name="reference_map_downsampling_passes" default="3" doc="downsampling of the reference map" />
+  <arg name="output" default="screen" doc="set to log to silence map_matcher nodes"/>
+  <arg name="launch_prefix" default="" doc="launch prefix for map_matcher server" />
+
+
+  <node pkg="map_matcher" type="map_matcher_server" name="map_matcher_server" output="$(arg output)"
+    launch-prefix="$(arg launch_prefix)" />
+
+  <node pkg="map_matcher" type="map_matcher_client" name="map_matcher_client" output="$(arg output)">
+    <remap from="/slam_map" to="/candidate_map" />
+    <param name="acceptance_ratio" type="double" value="0." />
+<!--     <param name="rotation_downsampling" type="int" value="1"/> -->
+<!--     <param name="hits_sample_threshold" type="int" value="0"/> -->
+    <param name="reference_map_name" type="string" value="$(arg reference_map_name)" />
+    <param name="maps_folder" type="string" value="$(arg maps_folder)" />
+    <param name="reference_map_frame" type="string" value="reference_map" />
+    <param name="reference_map_downsampling_passes" type="int" value="$(arg reference_map_downsampling_passes)" />
+  </node>
+
+  <!-- Publish reference map, for visualization only -->
+  <node pkg="map_server" type="map_server" name="ref_map_server" args="$(arg maps_folder)/$(arg reference_map_name).yaml">
+    <param name="frame_id" value="reference_map" />
+    <remap from="/map" to="/reference_map"/>
+  </node>
+
+  <!-- Publish candidate map, for visualization only -->
+  <node pkg="map_server" type="map_server" name="cand_map_server" args="$(arg maps_folder)/$(arg candidate_map_name).yaml">
+    <param name="frame_id" value="candidate_map" />
+    <remap from="/map" to="/candidate_map"/>
+  </node>
+
+</launch>
