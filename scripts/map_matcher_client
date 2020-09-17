@@ -4,8 +4,6 @@ from math import log
 import numpy as np
 import os
 import rospy
-import tf
-from tf2_ros import TransformException
 import threading
 from timeit import default_timer as timer
 from yaml import load
@@ -16,6 +14,24 @@ from std_msgs.msg import String
 from visualization_msgs.msg import Marker
 
 from map_matcher.srv import *
+
+def remove_python2_entries_from_sys_path():
+    """ sourcing ros means adding its python2 paths to sys.path. This creates incompatibilities when
+    importing tf, so we remove them """
+    import sys
+    if sys.version[0] == str(3):
+        new_path = []
+        for p in sys.path:
+            if "python2" in p:
+                print("REMOVING python2 entry from sys.path: {}".format(p))
+                continue
+            new_path.append(p)
+        sys.path = new_path
+
+remove_python2_entries_from_sys_path()
+if True:
+    import tf
+    from tf2_ros import TransformException
 
 
 def filter_if_out_of_bounds(indices_list, a):
